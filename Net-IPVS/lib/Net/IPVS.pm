@@ -37,6 +37,8 @@ Readonly my %VALID => (
     protocols          => [qw(tcp udp fwmark)],
     schedulers         => [qw(wrr rr wlc lc lblc lblcr dh sh sed nq)],
     forwarding_methods => [qw(dr tun nat)],
+    states             => [qw(master backup)],
+    syncid             => [ 0 .. 255 ],
     service_address    => qr/\A$RE{net}{IPv4}:\d+\z/xms,
     server_address     => qr/\A$RE{net}{IPv4}(:\d+)?\z/xms,
 );
@@ -129,95 +131,32 @@ sub add_server    { return (shift)->_modify_server( cmd => 'add',    @_ ); }
 sub edit_server   { return (shift)->_modify_server( cmd => 'edit',   @_ ); }
 sub delete_server { return (shift)->_modify_server( cmd => 'delete', @_ ); }
 
-# TODO - This doesn't actually run 'ipvsadm --list'. Perhaps it should be
-# renamed?
-sub list {
+sub start_daemon {
     my $self = shift;
-    my %ipvs = ();
-    my $virtual;
+    my %argv = @_;
 
-    open my $fh, '<', $self->{procfile}{ip_vs}
-        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs}, ': ',
-        $OS_ERROR;
+    my %has = (
+        state => {
+            required => 1,
+            allow    => $VALID{states},
+        },
+        'mcast-interface' => {},
+        syncid            => {
+            default => 0,
+            allow   => $VALID{syncid}
+        },
+    );
 
-    # /proc/net/ip_vs looks like this:
-    #
-    # IP Virtual Server version 1.2.1 (size=4096)
-    # Prot LocalAddress:Port Scheduler Flags
-    #   -> RemoteAddress:Port Forward Weight ActiveConn InActConn
-    # TCP  0A010A14:4E20 wlc
-    #   -> 0A010A15:4E20      Route   1      0          0
+    my $arg = check( \%has, \%argv )
+        or croak q{Error: }, Params::Check->last_error;
 
-    # Skip the header (first three lines)
-    <$fh> for 1 .. 3;
+    $arg->{ delete $arg->{state} } = q{};
 
-    while (<$fh>) {
-        if ( my @matches = m/$RE{ipvs}{virtual}/xms ) {
-            $virtual = $self->_parse_netaddr( address => $matches[1] );
-            @{ $ipvs{$virtual} }{qw(Protocol Scheduler Flags)}
-                = @matches[ 0, 2, 3 ];
-        }
-        elsif ( @matches = m/$RE{ipvs}{server}/xms ) {
-            my $server = $self->_parse_netaddr( address => $matches[0] );
-            @{ $ipvs{$virtual}{$server} }
-                {qw(Forward Weight ActiveConn InActiveConn)}
-                = @matches[ 1 .. 4 ];
-        }
-        else {
-            ### Malformed line in ip_vs table!
-        }
-    }
-
-    return wantarray ? %ipvs : \%ipvs;
+    return $self->_run_ipvsadm( cmd => 'start-daemon', opt => $arg );
 }
 
-# TODO - This doesn't actually run 'ipvsadm --list --connection'.  Perhaps it
-# should be renamed?
-sub list_connection {
-    my $self             = shift;
-    my @ipvs_connections = ();
-
-    open my $fh, '<', $self->{procfile}{ip_vs_conn}
-        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs_conn}, ': ',
-        $OS_ERROR;
-
-    # /proc/net/ip_vs_conn looks like this:
-    #
-    # Pro FromIP   FPrt ToIP     TPrt DestIP   DPrt State       Expires
-    # TCP 0AFA0032 9EED 0AD20321 0FBA 0AD20328 0FBA FIN_WAIT         55
-
-    # Skip the header (first line)
-    <$fh>;
-
-    CONNECTION:
-    while (<$fh>) {
-        my @cols = split;
-
-        if ( @cols != 9 ) {
-            ### Malformed connection entry in IPVS table!
-            next CONNECTION;
-        }
-
-        push @ipvs_connections,
-            {
-            protocol => $cols[0],
-            source =>
-                $self->_parse_netaddr( address => qq{$cols[1]:$cols[2]} ),
-            virtual =>
-                $self->_parse_netaddr( address => qq{$cols[3]:$cols[4]} ),
-            destination =>
-                $self->_parse_netaddr( address => qq{$cols[5]:$cols[6]} ),
-            state  => $cols[7],
-            expire => $cols[8],
-            };
-    }
-
-    return wantarray ? @ipvs_connections : \@ipvs_connections;
-}
-
-sub clear {
-    return (shift)->_run_ipvsadm( cmd => 'clear' );
-}
+sub stop_daemon { return (shift)->_run_ipvsadm( cmd => 'stop-daemon' ); }
+sub clear       { return (shift)->_run_ipvsadm( cmd => 'clear' ); }
 
 sub zero {
     my $self = shift;
@@ -265,6 +204,90 @@ sub set {
 
 #------------------------------------------------------------------------------
 
+sub get_table {
+    my $self = shift;
+    my %ipvs = ();
+    my $virtual;
+
+    open my $fh, '<', $self->{procfile}{ip_vs}
+        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs}, ': ',
+        $OS_ERROR;
+
+    # /proc/net/ip_vs looks like this:
+    #
+    # IP Virtual Server version 1.2.1 (size=4096)
+    # Prot LocalAddress:Port Scheduler Flags
+    #   -> RemoteAddress:Port Forward Weight ActiveConn InActConn
+    # TCP  0A010A14:4E20 wlc
+    #   -> 0A010A15:4E20      Route   1      0          0
+
+    # Skip the header (first three lines)
+    <$fh> for 1 .. 3;
+
+    while (<$fh>) {
+        if ( my @matches = m/$RE{ipvs}{virtual}/xms ) {
+            $virtual = $self->_parse_netaddr( address => $matches[1] );
+            @{ $ipvs{$virtual} }{qw(Protocol Scheduler Flags)}
+                = @matches[ 0, 2, 3 ];
+        }
+        elsif ( @matches = m/$RE{ipvs}{server}/xms ) {
+            my $server = $self->_parse_netaddr( address => $matches[0] );
+            @{ $ipvs{$virtual}{$server} }
+                {qw(Forward Weight ActiveConn InActiveConn)}
+                = @matches[ 1 .. 4 ];
+        }
+        else {
+            ### Malformed line in ip_vs table!
+        }
+    }
+
+    return wantarray ? %ipvs : \%ipvs;
+}
+
+sub get_connection_table {
+    my $self             = shift;
+    my @ipvs_connections = ();
+
+    open my $fh, '<', $self->{procfile}{ip_vs_conn}
+        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs_conn}, ': ',
+        $OS_ERROR;
+
+    # /proc/net/ip_vs_conn looks like this:
+    #
+    # Pro FromIP   FPrt ToIP     TPrt DestIP   DPrt State       Expires
+    # TCP 0AFA0032 9EED 0AD20321 0FBA 0AD20328 0FBA FIN_WAIT         55
+
+    # Skip the header (first line)
+    <$fh>;
+
+    CONNECTION:
+    while (<$fh>) {
+        my @cols = split;
+
+        if ( @cols != 9 ) {
+            ### Malformed connection entry in IPVS table!
+            next CONNECTION;
+        }
+
+        push @ipvs_connections,
+            {
+            protocol => $cols[0],
+            source =>
+                $self->_parse_netaddr( address => qq{$cols[1]:$cols[2]} ),
+            virtual =>
+                $self->_parse_netaddr( address => qq{$cols[3]:$cols[4]} ),
+            destination =>
+                $self->_parse_netaddr( address => qq{$cols[5]:$cols[6]} ),
+            state  => $cols[7],
+            expire => $cols[8],
+            };
+    }
+
+    return wantarray ? @ipvs_connections : \@ipvs_connections;
+}
+
+#------------------------------------------------------------------------------
+
 # TODO
 #
 # sub list_timeout         { croak $ENOFUNC }
@@ -277,6 +300,7 @@ sub set {
 
 
 #------------------------------------------------------------------------------
+# Internal Methods
 
 sub _modify_service {
     my $self = shift;
@@ -517,7 +541,13 @@ This document describes Net::IPVS version 0.01
         server  => '10.1.2.11',
     );
 
+    # Get the current IPVS table
+    my %ipvs_table = $ipvs->get_table();
+
+    # Get the current connection table
+    my @conn_table = $ipvs->get_connection_table();
   
+
 =head1 DESCRIPTION
 
 B<Warning:> This module is still in the experimental stages. The API may
@@ -650,14 +680,6 @@ Optional arguments:
     u-threshold - Integer for upper connection threshold (default: 0)
     l-threshold - Integer for lower connection threshold (default: 0)
 
-=item list()
-
-Get the virtual server table as a hash structure.
-
-=item list_connection()
-
-Get the list of connections to the virtual services as a hash structure.
-
 =item clear()
 
 Clear the virtual server table.
@@ -677,6 +699,72 @@ required arguments:
 
 Zero the packet, byte and rate counters in a service or all services. This
 method takes one optional argument: the virtual service address.
+
+=item get_table()
+
+Get the virtual server table as a hash structure. In list context this method
+will return a hash; in scalar context a hash reference will be returned.
+
+The hash will have each service address as a top level keys. Each service
+address will have the following three static keys:
+  
+  * Flags     - Any flags specified for the service
+  * Protocol  - TCP, UDP, or FWMARK
+  * Scheduler - The current scheduler (see the list of schedulers)
+
+In addition to these three keys, each real server address (IP and port) will
+be a key with the following subkeys:
+
+  * ActiveConn   - Active connections
+  * Forward      - Forwarding method
+  * InActiveConn - Inactive connections
+  * Weight       - Relative weight
+
+Example (YAML formatted):
+    --- 
+    10.1.10.20:20000: 
+      10.1.10.21:20000: 
+        ActiveConn: 0
+        Forward: Route
+        InActiveConn: 0
+        Weight: 1
+      Flags: ~
+      Protocol: TCP
+      Scheduler: wlc
+
+
+=item get_connection_table()
+
+Get the list of connections to the virtual services as a hash structure. In
+list context this method will return an array; in scalar context an array
+reference will be returned.
+
+The connection table is a List of Hashes with each hash entry in the list
+representing a single connection entry. Each entry has the following keys:
+
+  * destination - Address of real server
+  * expire      - Time (in seconds) the connection will expire
+  * protocol    - TCP, UDP, or FWMARK
+  * source      - IP and port of client connection
+  * state       - Connection state (e.g. SYN_RECV, FIN_WAIT, etc.)
+  * virtual     - Virtual service address
+
+Example (YAML formatted):
+    --- 
+    - 
+      destination: 10.1.10.121:20000
+      expire: 18
+      protocol: TCP
+      source: 10.1.9.201:47504
+      state: SYN_RECV
+      virtual: 10.1.10.120:20000
+    -
+      destination: 10.1.10.121:20000
+      expire: 18
+      protocol: TCP
+      source: 10.1.9.201:48702
+      state: SYN_RECV
+      virtual: 10.1.10.120:20000
 
 =back
 
@@ -730,8 +818,6 @@ Net::IPVS requires no configuration files or environment variables.
 
 =over
 
-=item Moose
-
 =item Readonly
 
 =item Regexp::Common
@@ -747,11 +833,10 @@ None reported.
 
 =head1 BUGS AND LIMITATIONS
 
-No bugs have been reported.
+Currently IPVS inspection is limited to parsing /proc/net/ip_vs* files.
 
 Please report any bugs or feature requests through the web interface at
 L<http://net-ipvs.googlecode.com>
-
 
 =head1 AUTHOR
 
@@ -769,23 +854,21 @@ modify it under the same terms as Perl itself. See L<perlartistic>.
 
 =head1 DISCLAIMER OF WARRANTY
 
-BECAUSE THIS SOFTWARE IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY
-FOR THE SOFTWARE, TO THE EXTENT PERMITTED BY APPLICABLE LAW. EXCEPT WHEN
-OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES
-PROVIDE THE SOFTWARE "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER
-EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE
-ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH
-YOU. SHOULD THE SOFTWARE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL
-NECESSARY SERVICING, REPAIR, OR CORRECTION.
+Because this software is licensed free of charge, there is no warranty for the
+software, to the extent permitted by applicable law. Except when otherwise
+stated in writing the copyright holders and/or other parties provide the
+software "as is" without warranty of any kind, either expressed or implied,
+including, but not limited to, the implied warranties of merchantability and
+fitness for a particular purpose. The entire risk as to the quality and
+performance of the software is with you. Should the software prove defective,
+you assume the cost of all necessary servicing, repair, or correction.
 
-IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
-WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR
-REDISTRIBUTE THE SOFTWARE AS PERMITTED BY THE ABOVE LICENCE, BE
-LIABLE TO YOU FOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL,
-OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE
-THE SOFTWARE (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING
-RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A
-FAILURE OF THE SOFTWARE TO OPERATE WITH ANY OTHER SOFTWARE), EVEN IF
-SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
-SUCH DAMAGES.
+In no event unless required by applicable law or agreed to in writing will any
+copyright holder, or any other party who may modify and/or redistribute the
+software as permitted by the above licence, be liable to you for damages,
+including any general, special, incidental, or consequential damages arising
+out of the use or inability to use the software (including but not limited to
+loss of data or data being rendered inaccurate or losses sustained by you or
+third parties or a failure of the software to operate with any other
+software), even if such holder or other party has been advised of the
+possibility of such damages.
