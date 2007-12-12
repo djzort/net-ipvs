@@ -12,7 +12,7 @@ use Test::Exception;
 use English qw(-no_match_vars);
 use File::Spec;
 
-#use Smart::Comments;
+use Smart::Comments;
 
 # Local Modules;
 use Net::IPVS;
@@ -49,64 +49,66 @@ my %procfile_noexist = (
 
 plan tests => 12;
 
-test_list();
-test_list_connection();
+test_get_table();
+test_get_connection_table();
 
 #------------------------------------------------------------------------------
 # Subroutines
 
-sub test_list {
+sub test_get_table {
     dies_ok {
         $ipvs->{procfile} = {%procfile_noexist};
-        $ipvs->list();
+        $ipvs->get_table();
     };
 
     lives_ok {
         $ipvs->{procfile} = {%procfile_empty};
-        $ipvs->list();
+        $ipvs->get_table();
     };
 
     lives_ok {
         $ipvs->{procfile} = {%procfile};
-        my %list_a = $ipvs->list();
-        ok( %list_a, 'list() returns hash in list context' );
+        my %table_a = $ipvs->get_table();
+        ok( %table_a, 'get_table() returns hash in list context' );
+        ### %table_a
 
-        my $list_b = $ipvs->list();
-        is( ref $list_b, 'HASH',
-            'list() returns hash reference in scalar context' );
+        my $table_b = $ipvs->get_table();
+        is( ref $table_b, 'HASH',
+            'get_table() returns hash reference in scalar context' );
     };
 
     lives_ok {
         $ipvs->{procfile} = {%procfile_malformed};
-        $ipvs->list();
+        $ipvs->get_table();
     };
 
 }
 
-sub test_list_connection {
+sub test_get_connection_table {
     dies_ok {
         $ipvs->{procfile} = {%procfile_noexist};
-        $ipvs->list_connection();
+        $ipvs->get_connection_table();
     };
 
     lives_ok {
         $ipvs->{procfile} = {%procfile_empty};
-        $ipvs->list_connection();
+        $ipvs->get_connection_table();
     };
 
     lives_ok {
         $ipvs->{procfile} = {%procfile};
-        my @list_a = $ipvs->list_connection();
-        ok( @list_a, 'list_connection() returns array in list context' );
+        my @table_a = $ipvs->get_connection_table();
+        ok( @table_a, 'get_connection_table() returns array in list context' );
+        ### @table_a
 
-        my $list_b = $ipvs->list_connection();
-        is( ref $list_b, 'ARRAY',
-            'list_connection() returns array reference in scalar context' );
+        my $table_b = $ipvs->get_connection_table();
+        is( ref $table_b, 'ARRAY',
+            'get_connection_table() returns array reference in scalar context' );
     };
 
     lives_ok {
         $ipvs->{procfile} = {%procfile_malformed};
-        $ipvs->list_connection();
+        $ipvs->get_connection_table();
     };
 }
 
