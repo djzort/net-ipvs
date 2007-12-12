@@ -1,0 +1,22 @@
+abstract: Perl interface to IP Virtual Server administration
+author: David Narayan  C<< <dnarayan@cpan.org> >>
+build_requires: 
+  File::Spec: 3.24
+  IO::Capture: 0.05
+  Test::Exception: 0.25
+  Test::More: 0.42
+distribution_type: module
+generated_by: Module::Install version 0.64
+license: perl
+name: Net-IPVS
+no_index: 
+  directory: 
+    - inc
+    - t
+requires: 
+  Carp: 0
+  Params::Check: 0.26
+  Readonly: 0
+  Regexp::Common: 2.120
+  perl: 5.6.0
+version: 0.01
