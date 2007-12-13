@@ -249,8 +249,8 @@ sub get_connection_table {
     my @ipvs_connections = ();
 
     open my $fh, '<', $self->{procfile}{ip_vs_conn}
-        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs_conn}, ': ',
-        $OS_ERROR;
+        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs_conn},
+        ': ', $OS_ERROR;
 
     # /proc/net/ip_vs_conn looks like this:
     #
@@ -345,6 +345,14 @@ sub _modify_service {
     #   --tcp-service IPADDR:PORT
     #
     $arg->{ $protocol . '-service' } = delete $arg->{virtual};
+
+    # The delete command should only have the service and server address
+    if ( $cmd eq 'delete' ) {
+        for ( keys %$arg ) {
+            delete $arg->{$_} if !/serv/;
+        }
+    }
+
     $cmd .= '-service';
 
     return $self->_run_ipvsadm( cmd => $cmd, opt => $arg );
@@ -370,7 +378,7 @@ sub _modify_server {
             allow    => $VALID{server_address},
         },
         protocol => {
-            default => $DEFAULT{scheduler},
+            default => $DEFAULT{protocol},
             allow   => $VALID{protocols},
             store   => \$protocol,
         },
@@ -408,9 +416,17 @@ sub _modify_server {
     $arg->{ $protocol . '-service' } = delete $arg->{virtual};
     $arg->{'real-server'} = delete $arg->{server};
 
+    # The delete command should only have the service and server address
+    if ( $cmd eq 'delete' ) {
+        for ( keys %$arg ) {
+            delete $arg->{$_} if !/serv/;
+        }
+    }
+
     # Command should really have '-server'; it's not required in the initial
     # arguments for brevity. Fix that here...
     $cmd .= '-server';
+
 
     return $self->_run_ipvsadm( cmd => $cmd, opt => $arg );
 }
@@ -699,6 +715,18 @@ required arguments:
 
 Zero the packet, byte and rate counters in a service or all services. This
 method takes one optional argument: the virtual service address.
+
+=item start_daemon( state => 'master|backup' )
+
+Start the synchronization daemon.
+
+Options:
+  * state  - master or backup
+  * syncid - synchronization id
+
+=item stop_daemon()
+
+Stop the synchronization daemon.
 
 =item get_table()
 
