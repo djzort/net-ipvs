@@ -30,8 +30,12 @@ use Regexp::Common 2.120 qw(number net pattern);
 
 $Params::Check::NO_DUPLICATES = 1;
 
-Readonly my $ENOFUNC    => 'FUNCTION NOT YET IMPLEMENTED';
-Readonly my $OPT_PREFIX => q{--};
+Readonly my $OPT_PREFIX => '--';
+
+Readonly my %ERR => (
+    PARAM => 'Param Error: ',
+    FILE  => 'Unable to open file ',
+);
 
 Readonly my %VALID => (
     commands           => [qw(add edit delete)],
@@ -50,9 +54,9 @@ Readonly my %DEFAULT => (
     forwarding_method => 'dr',
     command           => '/sbin/ipvsadm',
     procfile          => {
-        ip_vs       => q{/proc/net/ip_vs},
-        ip_vs_conn  => q{/proc/net/ip_vs_conn},
-        ip_vs_stats => q{/proc/net/ip_vs_stats}
+        ip_vs       => '/proc/net/ip_vs',
+        ip_vs_conn  => '/proc/net/ip_vs_conn',
+        ip_vs_stats => '/proc/net/ip_vs_stats',
     },
 );
 
@@ -80,7 +84,7 @@ Readonly my %FORWARDING_METHOD_FOR => (
 #     (\w+)?      # Flags
 pattern
     name   => [qw(ipvs virtual)],
-    create => q{\A(\w+)\s+([^ ]+)\s+(\w+)\s+(\w+)?},
+    create => '\A(\w+)\s+([^ ]+)\s+(\w+)\s+(\w+)?',
     ;
 
 # Match a server address line in the ip_vs table
@@ -96,7 +100,7 @@ pattern
 #    (\d+)       # InActive Connections
 pattern
     name   => [qw(ipvs server)],
-    create => q{\A\s\s->\s([^ ]+)\s+(\w+)\s+(\d+)\s+(\d+)\s+(\d+)},
+    create => '\A\s\s->\s([^ ]+)\s+(\w+)\s+(\d+)\s+(\d+)\s+(\d+)',
     ;
 
 #------------------------------------------------------------------------------
@@ -115,7 +119,7 @@ sub new {
     );
 
     my $self = check( \%has, \%argv )
-        or croak q{Error: }, Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     bless $self, $class;
     ### $self
@@ -148,7 +152,7 @@ sub start_daemon {
     );
 
     my $arg = check( \%has, \%argv )
-        or croak q{Error: }, Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     $arg->{ delete $arg->{state} } = q{};
 
@@ -176,7 +180,7 @@ sub zero {
     );
 
     my $arg = check( \%has, \%argv )
-        or croak q{Error: }, Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     $arg->{ $protocol . '-service' } = delete $arg->{virtual};
 
@@ -194,11 +198,11 @@ sub set {
     );
 
     my $arg = check( \%has, \%argv )
-        or croak q{Error: }, Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     my @cmd = ( 'set', @$arg{ keys %has } );
 
-    return $self->_run_ipvsadm( cmd => qq{@cmd} );
+    return $self->_run_ipvsadm( cmd => "@cmd" );
 
 }
 
@@ -210,8 +214,7 @@ sub get_table {
     my $virtual;
 
     open my $fh, '<', $self->{procfile}{ip_vs}
-        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs}, ': ',
-        $OS_ERROR;
+        or croak $ERR{FILE}, $self->{procfile}{ip_vs}, ': ', $OS_ERROR;
 
     # /proc/net/ip_vs looks like this:
     #
@@ -249,8 +252,7 @@ sub get_connection_table {
     my @ipvs_connections = ();
 
     open my $fh, '<', $self->{procfile}{ip_vs_conn}
-        or croak 'Unable to open proc file ', $self->{procfile}{ip_vs_conn},
-        ': ', $OS_ERROR;
+        or croak $ERR{FILE}, $self->{procfile}{ip_vs_conn}, ': ', $OS_ERROR;
 
     # /proc/net/ip_vs_conn looks like this:
     #
@@ -272,12 +274,11 @@ sub get_connection_table {
         push @ipvs_connections,
             {
             protocol => $cols[0],
-            source =>
-                $self->_parse_netaddr( address => qq{$cols[1]:$cols[2]} ),
+            source => $self->_parse_netaddr( address => "$cols[1]:$cols[2]" ),
             virtual =>
-                $self->_parse_netaddr( address => qq{$cols[3]:$cols[4]} ),
+                $self->_parse_netaddr( address => "$cols[3]:$cols[4]" ),
             destination =>
-                $self->_parse_netaddr( address => qq{$cols[5]:$cols[6]} ),
+                $self->_parse_netaddr( address => "$cols[5]:$cols[6]" ),
             state  => $cols[7],
             expire => $cols[8],
             };
@@ -285,18 +286,6 @@ sub get_connection_table {
 
     return wantarray ? @ipvs_connections : \@ipvs_connections;
 }
-
-#------------------------------------------------------------------------------
-
-# TODO
-#
-# sub list_timeout         { croak $ENOFUNC }
-# sub list_stats           { croak $ENOFUNC }
-# sub list_rate            { croak $ENOFUNC }
-# sub list_thresholds      { croak $ENOFUNC }
-# sub list_persistent_conn { croak $ENOFUNC }
-# sub restore              { croak $ENOFUNC }
-# sub save                 { croak $ENOFUNC }
 
 #------------------------------------------------------------------------------
 # Internal Methods
@@ -332,7 +321,7 @@ sub _modify_service {
     );
 
     my $arg = check( \%has, \%argv )
-        or croak 'Error: ', Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     # The protocol and command should really have '-service'; it's not
     # required in the initial arguments for brevity. Fix that here...
@@ -401,7 +390,7 @@ sub _modify_server {
     );
 
     my $arg = check( \%has, \%argv )
-        or croak q{Error: }, Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     # Since '--forwarding' isn't a valid parameter, add the proper parameter
     # from the list of forwarding methods (see above).
@@ -441,17 +430,17 @@ sub _parse_netaddr {
     );
 
     my $arg = check( \%has, \%argv )
-        or croak q{Error: }, Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     my ( $ip, $port ) = split /:/, $arg->{address};
 
-    return $self->_hex2ip($ip) . q{:} . hex $port;
+    return $self->_hex2ip($ip) . ':' . hex $port;
 }
 
 sub _hex2ip {
     my ( $self, $ip ) = @_;
 
-    return join q{.},
+    return join '.',
         (
         hex substr( $ip, 0, 2 ),
         hex substr( $ip, 2, 2 ),
@@ -479,12 +468,12 @@ sub _run_ipvsadm {
     );
 
     my $arg = check( \%has, \%argv )
-        or croak q{Error: }, Params::Check->last_error;
+        or croak $ERR{PARAM}, Params::Check->last_error;
 
     my @options
         = map { $OPT_PREFIX . $_, $option_ref->{$_} } keys %$option_ref;
 
-    my $ipvsadm = $self->{command} . qq{ $OPT_PREFIX$cmd @options};
+    my $ipvsadm = $self->{command} . " $OPT_PREFIX$cmd @options";
     ### Running command: $ipvsadm
 
     # System calls return 0 on success, >0 on failure.
@@ -822,15 +811,15 @@ Example (YAML formatted):
 
 =over
 
-=item C<< Error message here, perhaps with %s placeholders >>
+=item C<< Param Error: %s >>
 
-[Description of error here]
+A subroutine or method was called with invalid parameters. Refer to the
+method's parameters in the API documentation.
 
-=item C<< Another error message here >>
+=item C<< Unable to open file %s: %s >>
 
-[Description of error here]
-
-[Et cetera, et cetera]
+The specified file could not be opened. Please make sure the file is
+accessible.
 
 =back
 
@@ -844,11 +833,13 @@ Net::IPVS requires no configuration files or environment variables.
 
 =over
 
-=item Readonly
+=item Perl 5.6
 
-=item Regexp::Common
+=item L<Readonly>
 
-=item Params::Check
+=item L<Regexp::Common>
+
+=item L<Params::Check>
 
 =back
 
@@ -876,25 +867,3 @@ All rights reserved.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself. See L<perlartistic>.
-
-
-=head1 DISCLAIMER OF WARRANTY
-
-Because this software is licensed free of charge, there is no warranty for the
-software, to the extent permitted by applicable law. Except when otherwise
-stated in writing the copyright holders and/or other parties provide the
-software "as is" without warranty of any kind, either expressed or implied,
-including, but not limited to, the implied warranties of merchantability and
-fitness for a particular purpose. The entire risk as to the quality and
-performance of the software is with you. Should the software prove defective,
-you assume the cost of all necessary servicing, repair, or correction.
-
-In no event unless required by applicable law or agreed to in writing will any
-copyright holder, or any other party who may modify and/or redistribute the
-software as permitted by the above licence, be liable to you for damages,
-including any general, special, incidental, or consequential damages arising
-out of the use or inability to use the software (including but not limited to
-loss of data or data being rendered inaccurate or losses sustained by you or
-third parties or a failure of the software to operate with any other
-software), even if such holder or other party has been advised of the
-possibility of such damages.
