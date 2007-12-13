@@ -18,6 +18,7 @@ use Carp;
 use English qw(-no_match_vars);
 use Pod::Usage;
 use Readonly;
+
 #use Smart::Comments;
 
 # Specific Modules
@@ -118,10 +119,9 @@ sub new {
 
     bless $self, $class;
     ### $self
-    
+
     return $self;
 }
-
 
 sub add_service    { return (shift)->_modify_service( cmd => 'add',    @_ ); }
 sub edit_service   { return (shift)->_modify_service( cmd => 'edit',   @_ ); }
@@ -298,7 +298,6 @@ sub get_connection_table {
 # sub restore              { croak $ENOFUNC }
 # sub save                 { croak $ENOFUNC }
 
-
 #------------------------------------------------------------------------------
 # Internal Methods
 
@@ -426,7 +425,6 @@ sub _modify_server {
     # Command should really have '-server'; it's not required in the initial
     # arguments for brevity. Fix that here...
     $cmd .= '-server';
-
 
     return $self->_run_ipvsadm( cmd => $cmd, opt => $arg );
 }
