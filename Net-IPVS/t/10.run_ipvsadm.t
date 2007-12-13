@@ -11,6 +11,7 @@ use Test::Exception;
 # Extra Modules
 use English qw(-no_match_vars);
 use IO::Capture::Stderr;
+
 #use Smart::Comments;
 
 # Local Modules;
@@ -19,7 +20,7 @@ use Net::IPVS;
 #------------------------------------------------------------------------------
 # Setup
 
-my $ipvs = Net::IPVS->new(command => 'echo ipvsadm');
+my $ipvs = Net::IPVS->new( command => 'echo ipvsadm' );
 
 #------------------------------------------------------------------------------
 # Tests

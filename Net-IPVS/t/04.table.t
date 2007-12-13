@@ -12,7 +12,7 @@ use Test::Exception;
 use English qw(-no_match_vars);
 use File::Spec;
 
-use Smart::Comments;
+#use Smart::Comments;
 
 # Local Modules;
 use Net::IPVS;
@@ -98,12 +98,16 @@ sub test_get_connection_table {
     lives_ok {
         $ipvs->{procfile} = {%procfile};
         my @table_a = $ipvs->get_connection_table();
-        ok( @table_a, 'get_connection_table() returns array in list context' );
+        ok( @table_a,
+            'get_connection_table() returns array in list context' );
         ### @table_a
 
         my $table_b = $ipvs->get_connection_table();
-        is( ref $table_b, 'ARRAY',
-            'get_connection_table() returns array reference in scalar context' );
+        is(
+            ref $table_b,
+            'ARRAY',
+            'get_connection_table() returns array reference in scalar context'
+        );
     };
 
     lives_ok {

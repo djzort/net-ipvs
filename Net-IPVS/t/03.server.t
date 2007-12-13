@@ -11,6 +11,7 @@ use Test::Exception;
 # Extra Modules
 use English qw(-no_match_vars);
 use IO::Capture::Stderr;
+
 #use Smart::Comments;
 
 # Local Modules;
@@ -19,7 +20,7 @@ use Net::IPVS;
 #------------------------------------------------------------------------------
 # Setup
 
-my $ipvs = Net::IPVS->new(command => 'echo ipvsadm');
+my $ipvs = Net::IPVS->new( command => 'echo ipvsadm' );
 
 my $svcaddr = '10.1.2.3:20000';
 
@@ -44,7 +45,8 @@ sub test_modify_server {
     qr/Required option '\w+' is not provided/, 'Dies with no arguments';
 
     throws_ok { $ipvs->_modify_server( cmd => 'add' ) }
-    qr/Required option '\w+' is not provided/, 'Dies with no virtual service addresst';
+    qr/Required option '\w+' is not provided/,
+        'Dies with no virtual service addresst';
 
     throws_ok {
         $ipvs->_modify_server( cmd => 'add', virtual => $svcaddr );
